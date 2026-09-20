@@ -412,19 +412,23 @@ model Task {
   updatedAt   DateTime      @updatedAt @map("updated_at")
 
   // Relationships
-  project    Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  client     Client?             @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  createdBy  User?               @relation("TaskCreatedByUser", fields: [createdById], references: [id], onDelete: SetNull)
-  assignees  TaskAssignee[]
-  checklists TaskChecklistItem[]
-  comments   TaskComment[]
-  activities TaskActivity[]
+  project      Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  client       Client?             @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  createdBy    User?               @relation("TaskCreatedByUser", fields: [createdById], references: [id], onDelete: SetNull)
+  assignees    TaskAssignee[]
+  checklists   TaskChecklistItem[]
+  comments     TaskComment[]
+  activities   TaskActivity[]
+  parentTaskId String?             @map("parent_task_id")
+  parentTask   Task?               @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  subtasks     Task[]              @relation("TaskSubtasks")
 
   @@index([taskCode])
   @@index([projectId])
   @@index([clientId])
   @@index([status])
   @@index([dueDate])
+  @@index([parentTaskId])
   @@map("tasks")
 }
 
@@ -659,11 +663,13 @@ model ChatChannel {
 
 /// ChannelMember: Join model mapping Users to ChatChannels
 model ChannelMember {
-  id        String   @id @default(uuid())
-  channelId String   @map("channel_id")
-  userId    String   @map("user_id")
-  role      String   @default("MEMBER")
-  joinedAt  DateTime @default(now()) @map("joined_at")
+  id                String   @id @default(uuid())
+  channelId         String   @map("channel_id")
+  userId            String   @map("user_id")
+  role              String   @default("MEMBER")
+  lastReadAt        DateTime @default(now()) @map("last_read_at")
+  lastReadMessageId String?  @map("last_read_message_id")
+  joinedAt          DateTime @default(now()) @map("joined_at")
 
   channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
   user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -674,11 +680,15 @@ model ChannelMember {
 
 /// ChatConversation: 1-on-1 direct messaging conversation between two Users
 model ChatConversation {
-  id        String   @id @default(uuid())
-  userOneId String   @map("user_one_id")
-  userTwoId String   @map("user_two_id")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id                   String   @id @default(uuid())
+  userOneId            String   @map("user_one_id")
+  userTwoId            String   @map("user_two_id")
+  userOneLastReadAt    DateTime @default(now()) @map("user_one_last_read_at")
+  userTwoLastReadAt    DateTime @default(now()) @map("user_two_last_read_at")
+  userOneLastReadMsgId String?  @map("user_one_last_read_msg_id")
+  userTwoLastReadMsgId String?  @map("user_two_last_read_msg_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
 
   userOne  User          @relation("ConversationUserOne", fields: [userOneId], references: [id], onDelete: Cascade)
   userTwo  User          @relation("ConversationUserTwo", fields: [userTwoId], references: [id], onDelete: Cascade)

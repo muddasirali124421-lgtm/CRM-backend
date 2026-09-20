@@ -42,3 +42,8 @@ Thumbs.db
 scratch/
 tmp/
 temp/
+
+# Uploads & Local File Storage
+storage/
+uploads/
+

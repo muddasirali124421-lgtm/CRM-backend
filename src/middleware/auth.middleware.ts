@@ -109,7 +109,8 @@ export async function authenticate(
  * Example usage:
  * router.post('/projects', authenticate, authorize('projects.create'), controller);
  */
-export function authorize(permissionKey: string) {
+export function authorize(...permissionKeys: (string | string[])[]) {
+  const flatKeys = permissionKeys.flat();
   return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
       sendError(res, 'Unauthorized: user is not authenticated', 401);
@@ -123,12 +124,12 @@ export function authorize(permissionKey: string) {
     }
 
     // 2. Capability check against effective permissions
-    const hasCapability = req.user.permissions.has(permissionKey as PermissionString);
+    const hasCapability = flatKeys.some((key) => req.user!.permissions.has(key as PermissionString));
 
     if (!hasCapability) {
       sendError(
         res,
-        `Forbidden: you do not have the required permission (${permissionKey})`,
+        `Forbidden: you do not have the required permission (${flatKeys.join(' or ')})`,
         403
       );
       return;

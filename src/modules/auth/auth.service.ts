@@ -283,6 +283,7 @@ export class AuthService {
         isSuperAdmin: user.role.isSuperAdmin,
       },
       permissions,
+      effectivePermissions: permissions,
     };
   }
 }

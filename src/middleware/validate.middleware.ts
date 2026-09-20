@@ -1,11 +1,11 @@
 import { NextFunction, Request, Response } from 'express';
-import { AnyZodObject, ZodError } from 'zod';
+import { AnyZodObject, ZodError, ZodTypeAny } from 'zod';
 import { sendError } from '../utils/api-response';
 
 export interface RequestValidationSchemas {
-  body?: AnyZodObject;
-  query?: AnyZodObject;
-  params?: AnyZodObject;
+  body?: AnyZodObject | ZodTypeAny;
+  query?: AnyZodObject | ZodTypeAny;
+  params?: AnyZodObject | ZodTypeAny;
 }
 
 /**
@@ -31,7 +31,7 @@ export function validateRequest(schemas: RequestValidationSchemas) {
           field: err.path.join('.'),
           message: err.message,
         }));
-        sendError(res, 'Validation failed', 422, formattedErrors);
+        sendError(res, 'Validation failed', 400, formattedErrors);
         return;
       }
       next(error);

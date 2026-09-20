@@ -2,6 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { authenticate } from '../../middleware/auth.middleware';
 import { validateRequest } from '../../middleware/validate.middleware';
+import { asyncHandler } from '../../utils/api-response';
 import { AuthController } from './auth.controller';
 import { loginSchema, refreshSchema } from './auth.validation';
 
@@ -24,20 +25,20 @@ authRouter.post(
   '/login',
   loginLimiter,
   validateRequest({ body: loginSchema }),
-  AuthController.login
+  asyncHandler(AuthController.login)
 );
 
 // POST /api/auth/refresh
 authRouter.post(
   '/refresh',
   validateRequest({ body: refreshSchema }),
-  AuthController.refresh
+  asyncHandler(AuthController.refresh)
 );
 
 // POST /api/auth/logout
-authRouter.post('/logout', AuthController.logout);
+authRouter.post('/logout', asyncHandler(AuthController.logout));
 
 // GET /api/auth/me (Protected by authenticate middleware)
-authRouter.get('/me', authenticate, AuthController.getMe);
+authRouter.get('/me', authenticate, asyncHandler(AuthController.getMe));
 
 export default authRouter;

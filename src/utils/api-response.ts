@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import { ApiResponseError, ApiResponseSuccess } from '../types/api.types';
 
 /**
@@ -51,4 +51,15 @@ export function sendError(
     ...(errors !== undefined ? { errors } : {}),
   };
   return res.status(statusCode).json(responseBody);
+}
+
+/**
+ * Wraps async Express route handlers to forward unhandled errors to next()
+ */
+export function asyncHandler<Req extends Request = any>(
+  fn: (req: Req, res: Response, next: NextFunction) => Promise<unknown> | unknown
+) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    Promise.resolve(fn(req as Req, res, next)).catch(next);
+  };
 }

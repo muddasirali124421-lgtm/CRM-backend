@@ -41,4 +41,5 @@ export interface CurrentUserResult {
   employee: SafeAuthEmployee | null;
   role: SafeAuthRole;
   permissions: string[];
+  effectivePermissions: string[];
 }

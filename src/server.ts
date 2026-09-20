@@ -7,7 +7,12 @@ import { env } from './config/env';
  * Note: Wrapping with http.createServer ensures seamless integration with
  * WebSockets / Socket.IO for future chat and real-time notification modules.
  */
+import { initSocketIO } from './socket';
+
 const server = http.createServer(app);
+
+// Initialize Socket.IO attached to HTTP server
+initSocketIO(server);
 
 const PORT = env.PORT;
 
@@ -18,6 +23,7 @@ server.listen(PORT, () => {
   console.log(` Port        : ${PORT}`);
   console.log(` Health URL  : http://localhost:${PORT}/api/health`);
   console.log(` CORS Origin : ${env.FRONTEND_URL}`);
+  console.log(` Socket.IO   : Initialized on port ${PORT}`);
   console.log(`========================================`);
 });
 

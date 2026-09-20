@@ -26,6 +26,9 @@ const envSchema = z.object({
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
   FRONTEND_URL: z.string().default('http://localhost:5173'),
+  STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+  LOCAL_STORAGE_PATH: z.string().default('storage/uploads'),
+  MAX_UPLOAD_SIZE_MB: z.coerce.number().positive().default(25),
 });
 
 const parseEnv = () => {
