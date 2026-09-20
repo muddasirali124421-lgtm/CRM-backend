@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import authRouter from '../modules/auth/auth.routes';
 import healthRouter from './health.router';
 
 const apiRouter = Router();
@@ -6,8 +7,8 @@ const apiRouter = Router();
 // Mount Health Check endpoint (/api/health)
 apiRouter.use('/', healthRouter);
 
-// Future modular routes will be registered here cleanly:
-// apiRouter.use('/auth', authRouter);
+// Mount Authentication routes (/api/auth)
+apiRouter.use('/auth', authRouter);
 // apiRouter.use('/employees', employeeRouter);
 // apiRouter.use('/users', userRouter);
 // apiRouter.use('/roles', roleRouter);

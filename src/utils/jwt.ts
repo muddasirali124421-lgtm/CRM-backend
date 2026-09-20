@@ -1,25 +1,17 @@
+import crypto from 'crypto';
 import jwt, { SignOptions } from 'jsonwebtoken';
 import { env } from '../config/env';
-import { JwtAccessTokenPayload, JwtRefreshTokenPayload } from '../types/auth.types';
+import { JwtAccessTokenPayload } from '../types/auth.types';
 
 /**
- * Sign JWT Access Token
+ * Sign JWT Access Token (short-lived)
  */
 export function signAccessToken(payload: JwtAccessTokenPayload): string {
   const options: SignOptions = {
     expiresIn: env.JWT_ACCESS_EXPIRES_IN as SignOptions['expiresIn'],
+    subject: payload.userId,
   };
   return jwt.sign(payload, env.JWT_ACCESS_SECRET, options);
-}
-
-/**
- * Sign JWT Refresh Token
- */
-export function signRefreshToken(payload: JwtRefreshTokenPayload): string {
-  const options: SignOptions = {
-    expiresIn: env.JWT_REFRESH_EXPIRES_IN as SignOptions['expiresIn'],
-  };
-  return jwt.sign(payload, env.JWT_REFRESH_SECRET, options);
 }
 
 /**
@@ -30,8 +22,15 @@ export function verifyAccessToken(token: string): JwtAccessTokenPayload {
 }
 
 /**
- * Verify and decode JWT Refresh Token
+ * Generate a cryptographically secure random opaque refresh token string
  */
-export function verifyRefreshToken(token: string): JwtRefreshTokenPayload {
-  return jwt.verify(token, env.JWT_REFRESH_SECRET) as JwtRefreshTokenPayload;
+export function generateRefreshTokenString(): string {
+  return crypto.randomBytes(40).toString('hex');
+}
+
+/**
+ * Compute SHA-256 hash of a refresh token string for safe database storage
+ */
+export function hashRefreshToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
 }

@@ -1,3 +1,4 @@
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { Application } from 'express';
 import helmet from 'helmet';
@@ -31,11 +32,14 @@ export function createApp(): Application {
     })
   );
 
-  // 3. Body parsers with sensible size limits
+  // 3. Cookie parser for HttpOnly session tokens
+  app.use(cookieParser());
+
+  // 4. Body parsers with sensible size limits
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-  // 4. API Routes mounted under /api
+  // 5. API Routes mounted under /api
   app.use('/api', apiRouter);
 
   // 5. 404 Route Not Found Handler

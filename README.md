@@ -208,4 +208,43 @@ The PostgreSQL database schema consists of 35 models and 11 enums, fully structu
 - `NotificationPreference`: User configurable notification categories.
 - `WorkspaceSetting`: Organization profile, logo, timezone, and default currency.
 - `AuditLog`: Append-only audit trail capturing security and business events across all entities.
+- `RefreshSession`: Database-backed refresh token tracking storing SHA-256 hashes for session revocation and rotation.
+
+---
+
+## 🔐 Authentication & Authorization
+
+### 1. Super Admin Bootstrap
+Because OfficeCRM does not allow public registration, the initial Super Admin account is bootstrapped via a dedicated CLI script:
+
+```bash
+npm run bootstrap:superadmin
+```
+- Collects First Name, Last Name, Email, and Password securely with masked terminal input.
+- Automatically generates the next unique employee code (e.g. `EMP-0001`).
+- Links the new `Employee` (in the `Management` department) with the `User` account within an atomic database transaction.
+- Strictly protected against duplicate Super Admin creation.
+
+### 2. Authentication Endpoints
+
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/auth/login` | Public (Rate Limited) | Authenticates email + password, issues access token and sets HttpOnly refresh cookie |
+| `POST` | `/api/auth/refresh` | Public / Cookie | Rotates refresh session in database and issues new access token |
+| `POST` | `/api/auth/logout` | Authenticated / Cookie | Revokes refresh session in database and clears HttpOnly cookie |
+| `GET` | `/api/auth/me` | Authenticated (`Bearer`) | Returns safe current user profile, linked employee, role, and effective permissions |
+
+### 3. Token Architecture
+- **Access Token**: Short-lived JWT (default `15m`) signed with `JWT_ACCESS_SECRET`. Passed in requests via `Authorization: Bearer <token>`.
+- **Refresh Token**: High-entropy 40-byte opaque token (default `7d`) stored in the `RefreshSession` table as a SHA-256 hash. Delivered via an HttpOnly cookie (`officecrm_refresh_token`) with SameSite protection.
+- **Rotation & Revocation**: Every refresh request rotates the token and marks the previous session revoked (`revokedAt`). Logout immediately revokes the session.
+
+### 4. Permission Authorization Engine
+- Protected routes use `authenticate` and `authorize('module.action')`.
+- **Enforcement Rules**:
+  1. If `user.role.isSuperAdmin === true` ➔ **ALLOW** (Root bypass).
+  2. Else if `UserPermissionOverride` exists for `module.action` ➔ use `override.allowed` (Explicit Grant/Deny).
+  3. Else if `RolePermission` exists for `module.action` ➔ use `rolePermission.allowed`.
+  4. Else ➔ **DENY** (Default deny).
+
 

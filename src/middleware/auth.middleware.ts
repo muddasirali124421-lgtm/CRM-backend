@@ -1,15 +1,17 @@
 import { NextFunction, Response } from 'express';
 import { JsonWebTokenError, TokenExpiredError } from 'jsonwebtoken';
+import prisma from '../config/database';
+import { PermissionService } from '../services/permission.service';
 import { AuthenticatedRequest } from '../types/auth.types';
-import { PermissionString, SystemModule } from '../types/permissions.types';
+import { PermissionString } from '../types/permissions.types';
 import { sendError } from '../utils/api-response';
 import { verifyAccessToken } from '../utils/jwt';
 
 /**
- * Authentication Middleware Preparation
- * Extracts Bearer token from Authorization header and verifies it.
- * Note: Full DB user retrieval, status check, and permission override loading
- * will be linked in Step 2 when database models are migrated.
+ * Authentication Middleware
+ * Validates JWT access token, checks database user status,
+ * loads linked employee and role, calculates effective permissions,
+ * and attaches authenticated user context to the request.
  */
 export async function authenticate(
   req: AuthenticatedRequest,
@@ -30,23 +32,56 @@ export async function authenticate(
       return;
     }
 
+    // 1. Verify token signature and expiration
     const payload = verifyAccessToken(token);
 
-    // In this foundation step, we bind the decoded token payload to req.user.
-    // In Step 2 (Auth implementation), this will also hydrate active status and permission overrides from DB.
-    req.user = {
-      userId: payload.userId,
-      email: payload.email,
-      isSuperAdmin: payload.isSuperAdmin,
-      employeeId: payload.employeeId,
-      role: {
-        id: payload.roleId,
-        name: payload.isSuperAdmin ? 'Super Admin' : 'Configured Role',
-        isSuperAdmin: payload.isSuperAdmin,
-        isSystemRole: true,
-        permissions: [],
+    // 2. Fetch fresh user account from database
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      include: {
+        role: true,
+        employee: true,
       },
-      permissions: new Set<PermissionString>(),
+    });
+
+    if (!user) {
+      sendError(res, 'Authentication failed: user account no longer exists', 401);
+      return;
+    }
+
+    // 3. Check account status
+    if (user.accountStatus !== 'ACTIVE') {
+      sendError(
+        res,
+        `Account access denied: your account is currently ${user.accountStatus.toLowerCase()}`,
+        403
+      );
+      return;
+    }
+
+    // 4. Check linked employee status if present
+    if (user.employee && user.employee.employmentStatus === 'INACTIVE') {
+      sendError(res, 'Account access denied: linked employee profile is inactive', 403);
+      return;
+    }
+
+    // 5. Calculate effective permissions
+    const effectivePermissionKeys = await PermissionService.getEffectivePermissions(user.id);
+
+    // 6. Attach authenticated user context
+    req.user = {
+      userId: user.id,
+      email: user.email,
+      role: {
+        id: user.role.id,
+        name: user.role.name,
+        isSuperAdmin: user.role.isSuperAdmin,
+        isSystemRole: user.role.isSystem,
+        permissions: effectivePermissionKeys as PermissionString[],
+      },
+      isSuperAdmin: user.role.isSuperAdmin,
+      employeeId: user.employeeId ?? undefined,
+      permissions: new Set<PermissionString>(effectivePermissionKeys as PermissionString[]),
     };
 
     next();
@@ -66,37 +101,34 @@ export async function authenticate(
 /**
  * Capability-based Authorization Middleware
  *
- * Enforcement Rules:
- * 1. IF user is Super Admin -> ALLOW
- * 2. User Permission Override check (handled when permissions set is loaded)
- * 3. Role Permission check
- * 4. Strictly NO hardcoded role string checks (e.g., role === 'Admin')
+ * Rules:
+ * 1. ONLY Role.isSuperAdmin === true bypasses checks unconditionally.
+ * 2. Never check role names (e.g. role.name === 'Admin').
+ * 3. Evaluates effective capabilities (user overrides take precedence over role permissions).
  *
  * Example usage:
- * router.delete('/projects/:id', authenticate, authorize('projects', 'delete'), controller);
+ * router.post('/projects', authenticate, authorize('projects.create'), controller);
  */
-export function authorize(module: SystemModule, action: string) {
-  const requiredPermission: PermissionString = `${module}.${action}`;
-
+export function authorize(permissionKey: string) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
       sendError(res, 'Unauthorized: user is not authenticated', 401);
       return;
     }
 
-    // 1. Super Admin has unrestricted access across all modules
+    // 1. Super Admin bypass (ONLY via isSuperAdmin === true, before normal evaluation)
     if (req.user.isSuperAdmin) {
       next();
       return;
     }
 
-    // 2. Capability-based permission check
-    const hasPermission = req.user.permissions.has(requiredPermission);
+    // 2. Capability check against effective permissions
+    const hasCapability = req.user.permissions.has(permissionKey as PermissionString);
 
-    if (!hasPermission) {
+    if (!hasCapability) {
       sendError(
         res,
-        `Forbidden: you do not have the required permission (${requiredPermission})`,
+        `Forbidden: you do not have the required permission (${permissionKey})`,
         403
       );
       return;

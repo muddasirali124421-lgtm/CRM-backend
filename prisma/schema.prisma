@@ -186,11 +186,30 @@ model User {
   triggeredNotifications  Notification[]           @relation("NotificationActor")
   notificationPreferences NotificationPreference[]
   auditLogs               AuditLog[]
+  refreshSessions         RefreshSession[]
 
   @@index([email])
   @@index([roleId])
   @@index([accountStatus])
   @@map("users")
+}
+
+/// RefreshSession: Database-backed refresh token session tracking for revocation & rotation
+model RefreshSession {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash") // SHA-256 hash of the issued refresh token
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  ipAddress String?   @map("ip_address")
+  userAgent String?   @map("user_agent")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_sessions")
 }
 
 /// Role: Grouping of capability permissions.
