@@ -247,4 +247,47 @@ npm run bootstrap:superadmin
   3. Else if `RolePermission` exists for `module.action` ➔ use `rolePermission.allowed`.
   4. Else ➔ **DENY** (Default deny).
 
+---
+
+## 👥 Employee & User Account Management APIs
+
+All endpoints require authentication (`Bearer <token>`) and enforce capability-based authorization.
+
+### 1. Employee Directory
+
+| Method | Endpoint | Required Capability | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/employees` | `employees.view` | Filterable list with pagination, search, status, role, and department filters |
+| `POST` | `/api/employees` | `employees.create` | Creates employee with auto-generated code (`EMP-XXXX`) and email collision validation |
+| `GET` | `/api/employees/:id` | `employees.view` | Detailed employee profile with department, linked user summary, and project/task counts |
+| `PATCH` | `/api/employees/:id` | `employees.edit` | Updates employee profile (does not modify credentials or roles) |
+| `DELETE` | `/api/employees/:id` | `employees.delete` | Safe deactivation if historical records exist; deletes clean records; protects last Super Admin |
+
+### 2. User Account Management
+
+| Method | Endpoint | Required Capability | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/employees/:id/account` | `settings.manage_users` | Creates login account for employee with temporary password (enforces password policy) |
+| `PATCH` | `/api/employees/:id/account` | `settings.manage_users` | Updates login email, role, or account status (`ACTIVE`, `INACTIVE`, `SUSPENDED`) |
+| `POST` | `/api/employees/:id/account/reset-password` | `settings.manage_users` | Administrative password reset with immediate session revocation |
+
+### 3. Permission Overrides & Role Configuration
+
+| Method | Endpoint | Required Capability | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/employees/:id/permissions` | `settings.manage_permissions` | Retrieves role defaults, user overrides, and calculated effective capabilities |
+| `PUT` | `/api/employees/:id/permissions` | `settings.manage_permissions` | Configures explicit `ALLOW`, `DENY`, or reset to role default for individual users |
+| `GET` | `/api/roles` | `authenticate` | Lists system and custom roles |
+| `GET` | `/api/roles/:id/permissions` | `settings.manage_permissions` | Lists permissions and allowed status for a specific role |
+| `PUT` | `/api/roles/:id/permissions` | `settings.manage_permissions` | Updates capabilities for non-Super-Admin roles (Super Admin is protected) |
+| `GET` | `/api/departments` | `authenticate` | Lists departments for employee creation dropdowns |
+
+### 4. Security & Super Admin Protections
+- **Role Assignment**: Only an active Super Admin (`isSuperAdmin: true`) can assign the Super Admin role.
+- **Account Modification**: Non-Super Admin users cannot modify or demote a Super Admin account.
+- **Lockout Prevention**: The last active Super Admin cannot be suspended, deactivated, deleted, or demoted.
+- **Self-Protection**: A Super Admin cannot suspend or demote their own account.
+- **Session Revocation**: Suspending an account, changing an employee's role, or resetting their password immediately revokes all active refresh sessions.
+
+
 

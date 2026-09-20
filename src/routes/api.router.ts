@@ -1,5 +1,8 @@
 import { Router } from 'express';
 import authRouter from '../modules/auth/auth.routes';
+import departmentsRouter from '../modules/departments/departments.routes';
+import employeesRouter from '../modules/employees/employees.routes';
+import rolesRouter from '../modules/roles/roles.routes';
 import healthRouter from './health.router';
 
 const apiRouter = Router();
@@ -9,9 +12,15 @@ apiRouter.use('/', healthRouter);
 
 // Mount Authentication routes (/api/auth)
 apiRouter.use('/auth', authRouter);
-// apiRouter.use('/employees', employeeRouter);
-// apiRouter.use('/users', userRouter);
-// apiRouter.use('/roles', roleRouter);
+
+// Mount Employee management routes (/api/employees)
+apiRouter.use('/employees', employeesRouter);
+
+// Mount Department routes (/api/departments)
+apiRouter.use('/departments', departmentsRouter);
+
+// Mount Role routes (/api/roles)
+apiRouter.use('/roles', rolesRouter);
 // apiRouter.use('/leads', leadRouter);
 // apiRouter.use('/clients', clientRouter);
 // apiRouter.use('/projects', projectRouter);
