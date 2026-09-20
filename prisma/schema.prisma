@@ -10,13 +10,797 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Minimal placeholder model to ensure Prisma Client generates cleanly
-// in Step 1. The full relational CRM schema (Users, Employees, Roles,
-// Permissions, Projects, Tasks, etc.) will be designed in Step 2.
-model SystemHealth {
-  id        String   @id @default(uuid())
-  status    String   @default("ok")
-  checkedAt DateTime @default(now())
+// ============================================================================
+// ENUMS
+// ============================================================================
 
-  @@map("system_health")
+enum UserAccountStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  INACTIVE
+  ON_LEAVE
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  FOLLOW_UP
+  QUALIFIED
+  CONVERTED
+  LOST
+}
+
+enum ClientStatus {
+  ACTIVE
+  INACTIVE
+  LEAD
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  QA_REVIEW
+  REVISION
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  QA
+  REVISION
+  COMPLETED
+}
+
+enum PriorityLevel {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PARTIAL
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum FileAccessLevel {
+  PRIVATE
+  TEAM
+  SPECIFIC_USERS
+  EVERYONE
+}
+
+enum ChannelType {
+  CHANNEL
+  PROJECT
+  GROUP
+}
+
+enum NotificationCategory {
+  TASKS
+  PROJECTS
+  CHAT
+  LEADS
+  PAYMENTS
+  FILES
+  SYSTEM
+}
+
+// ============================================================================
+// ORGANIZATION & STAFF MODELS
+// ============================================================================
+
+/// Department representation within the organization
+model Department {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  employees Employee[]
+
+  @@map("departments")
+}
+
+/// Employee: Staff business profile.
+/// NOTE: Employee is NOT the login credential. Passwords must never be stored here.
+model Employee {
+  id               String           @id @default(uuid())
+  employeeCode     String           @unique @map("employee_code") // e.g. EMP-0001
+  firstName        String           @map("first_name")
+  lastName         String           @map("last_name")
+  email            String           @map("email")
+  phone            String?
+  jobTitle         String           @map("job_title")
+  departmentId     String?          @map("department_id")
+  joiningDate      DateTime         @map("joining_date")
+  employmentStatus EmploymentStatus @default(ACTIVE) @map("employment_status")
+  profileImage     String?          @map("profile_image")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  // Relationships
+  department         Department?     @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  user               User? // 1 Employee <-> 0..1 User login account
+  assignedLeads      Lead[]          @relation("AssignedLeadEmployee")
+  assignedClients    Client[]        @relation("AssignedClientEmployee")
+  managedProjects    Project[]       @relation("ManagedProjects")
+  projectMemberships ProjectMember[]
+  assignedTasks      TaskAssignee[]
+
+  @@index([employeeCode])
+  @@index([departmentId])
+  @@index([employmentStatus])
+  @@map("employees")
+}
+
+// ============================================================================
+// AUTHENTICATION & CAPABILITY-BASED AUTHORIZATION
+// ============================================================================
+
+/// User: Authentication and security account.
+/// Linked 1-to-0..1 with an Employee record.
+model User {
+  id            String            @id @default(uuid())
+  employeeId    String?           @unique @map("employee_id") // Links to staff profile
+  email         String            @unique
+  passwordHash  String            @map("password_hash")
+  roleId        String            @map("role_id")
+  accountStatus UserAccountStatus @default(ACTIVE) @map("account_status")
+  lastLoginAt   DateTime?         @map("last_login_at")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  // Relationships
+  employee                Employee?                @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  role                    Role                     @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  permissionOverrides     UserPermissionOverride[]
+  createdTasks            Task[]                   @relation("TaskCreatedByUser")
+  taskComments            TaskComment[]
+  taskActivities          TaskActivity[]
+  recordedPayments        Payment[]
+  uploadedFiles           FileAsset[]
+  createdFolders          FileFolder[]
+  fileShares              FileShare[]
+  createdChannels         ChatChannel[]
+  channelMemberships      ChannelMember[]
+  conversationsAsUserOne  ChatConversation[]       @relation("ConversationUserOne")
+  conversationsAsUserTwo  ChatConversation[]       @relation("ConversationUserTwo")
+  sentMessages            ChatMessage[]
+  chatReactions           ChatReaction[]
+  chatMentions            ChatMention[]
+  notifications           Notification[]           @relation("UserNotificationReceiver")
+  triggeredNotifications  Notification[]           @relation("NotificationActor")
+  notificationPreferences NotificationPreference[]
+  auditLogs               AuditLog[]
+
+  @@index([email])
+  @@index([roleId])
+  @@index([accountStatus])
+  @@map("users")
+}
+
+/// Role: Grouping of capability permissions.
+/// Note: Custom roles supported. Only isSuperAdmin = true grants unconditional access.
+model Role {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  description  String?
+  isSystem     Boolean  @default(false) @map("is_system")
+  isSuperAdmin Boolean  @default(false) @map("is_super_admin")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+/// Permission: Capability descriptor in format 'module.action' (e.g. 'projects.delete')
+model Permission {
+  id          String   @id @default(uuid())
+  module      String // e.g. "projects", "employees"
+  action      String // e.g. "view", "create", "delete"
+  key         String   @unique // e.g. "projects.delete"
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  rolePermissions RolePermission[]
+  userOverrides   UserPermissionOverride[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+/// RolePermission: Capability assigned to a Role
+model RolePermission {
+  id           String   @id @default(uuid())
+  roleId       String   @map("role_id")
+  permissionId String   @map("permission_id")
+  allowed      Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+/// UserPermissionOverride: User-specific permission override (explicit ALLOW or DENY)
+model UserPermissionOverride {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  permissionId String   @map("permission_id")
+  allowed      Boolean // true = explicit grant, false = explicit revoke
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionId])
+  @@map("user_permission_overrides")
+}
+
+// ============================================================================
+// CRM WORKFLOW: LEADS & CLIENTS
+// ============================================================================
+
+/// Lead: Inbound prospect or potential business opportunity
+model Lead {
+  id             String        @id @default(uuid())
+  leadCode       String        @unique @map("lead_code") // e.g. LEAD-0001
+  firstName      String        @map("first_name")
+  lastName       String        @map("last_name")
+  company        String?
+  email          String
+  phone          String?
+  source         String?
+  status         LeadStatus    @default(NEW)
+  priority       PriorityLevel @default(MEDIUM)
+  assignedToId   String?       @map("assigned_to_id")
+  estimatedValue Decimal?      @map("estimated_value") @db.Decimal(12, 2)
+  followUpAt     DateTime?     @map("follow_up_at")
+  notes          String?       @db.Text
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  // Relationships
+  assignedTo      Employee? @relation("AssignedLeadEmployee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  convertedClient Client?   @relation("LeadConvertedToClient")
+
+  @@index([leadCode])
+  @@index([status])
+  @@index([assignedToId])
+  @@map("leads")
+}
+
+/// Client: Business customer or company
+model Client {
+  id           String       @id @default(uuid())
+  clientCode   String       @unique @map("client_code") // e.g. CL-0001
+  name         String
+  company      String?
+  email        String
+  phone        String?
+  website      String?
+  addressLine1 String?      @map("address_line1")
+  addressLine2 String?      @map("address_line2")
+  city         String?
+  state        String?
+  country      String?
+  postalCode   String?      @map("postal_code")
+  status       ClientStatus @default(ACTIVE)
+  assignedToId String?      @map("assigned_to_id")
+  sourceLeadId String?      @unique @map("source_lead_id") // Optional link to originating Lead
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  // Relationships
+  sourceLead Lead?     @relation("LeadConvertedToClient", fields: [sourceLeadId], references: [id], onDelete: SetNull)
+  assignedTo Employee? @relation("AssignedClientEmployee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  projects   Project[]
+  tasks      Task[]
+  invoices   Invoice[]
+
+  @@index([clientCode])
+  @@index([status])
+  @@index([assignedToId])
+  @@map("clients")
+}
+
+// ============================================================================
+// PROJECT MANAGEMENT & TASKS
+// ============================================================================
+
+/// Project: Client project deliverables
+model Project {
+  id          String        @id @default(uuid())
+  projectCode String        @unique @map("project_code") // e.g. PRJ-0001
+  name        String
+  description String?       @db.Text
+  clientId    String        @map("client_id")
+  managerId   String?       @map("manager_id")
+  status      ProjectStatus @default(PLANNING)
+  priority    PriorityLevel @default(MEDIUM)
+  startDate   DateTime?     @map("start_date")
+  dueDate     DateTime?     @map("due_date")
+  completedAt DateTime?     @map("completed_at")
+  budget      Decimal?      @db.Decimal(12, 2)
+  currency    String        @default("USD")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  // Relationships
+  client       Client          @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  manager      Employee?       @relation("ManagedProjects", fields: [managerId], references: [id], onDelete: SetNull)
+  members      ProjectMember[]
+  tasks        Task[]
+  invoices     Invoice[]
+  chatChannels ChatChannel[]
+
+  @@index([projectCode])
+  @@index([clientId])
+  @@index([managerId])
+  @@index([status])
+  @@map("projects")
+}
+
+/// ProjectMember: Join model mapping Employees to Projects
+model ProjectMember {
+  id          String   @id @default(uuid())
+  projectId   String   @map("project_id")
+  employeeId  String   @map("employee_id")
+  projectRole String   @default("MEMBER") @map("project_role")
+  joinedAt    DateTime @default(now()) @map("joined_at")
+
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, employeeId])
+  @@map("project_members")
+}
+
+/// Task: Actionable item associated with a Project
+model Task {
+  id          String        @id @default(uuid())
+  taskCode    String        @unique @map("task_code") // e.g. TASK-0001
+  title       String
+  description String?       @db.Text
+  projectId   String        @map("project_id")
+  clientId    String?       @map("client_id")
+  createdById String?       @map("created_by_id")
+  status      TaskStatus    @default(TODO)
+  priority    PriorityLevel @default(MEDIUM)
+  startDate   DateTime?     @map("start_date")
+  dueDate     DateTime?     @map("due_date")
+  completedAt DateTime?     @map("completed_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  // Relationships
+  project    Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  client     Client?             @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  createdBy  User?               @relation("TaskCreatedByUser", fields: [createdById], references: [id], onDelete: SetNull)
+  assignees  TaskAssignee[]
+  checklists TaskChecklistItem[]
+  comments   TaskComment[]
+  activities TaskActivity[]
+
+  @@index([taskCode])
+  @@index([projectId])
+  @@index([clientId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("tasks")
+}
+
+/// TaskAssignee: Join model mapping Employees to Tasks
+model TaskAssignee {
+  id         String   @id @default(uuid())
+  taskId     String   @map("task_id")
+  employeeId String   @map("employee_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  task     Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, employeeId])
+  @@map("task_assignees")
+}
+
+/// TaskChecklistItem: Subtask checklist item inside a Task
+model TaskChecklistItem {
+  id          String   @id @default(uuid())
+  taskId      String   @map("task_id")
+  title       String
+  isCompleted Boolean  @default(false) @map("is_completed")
+  position    Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("task_checklist_items")
+}
+
+/// TaskComment: Comment on a Task with optional parentId for threaded replies
+model TaskComment {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  authorId  String   @map("author_id")
+  parentId  String?  @map("parent_id")
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  task    Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author  User          @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  parent  TaskComment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies TaskComment[] @relation("CommentReplies")
+
+  @@index([taskId])
+  @@map("task_comments")
+}
+
+/// TaskActivity: Audit trail of changes made to a task
+model TaskActivity {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  actorId   String?  @map("actor_id")
+  action    String // e.g. "STATUS_CHANGED", "ASSIGNEE_ADDED"
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+  @@map("task_activities")
+}
+
+// ============================================================================
+// FINANCIAL MODELS: INVOICES & PAYMENTS
+// ============================================================================
+
+/// Invoice: Billing document for a Client
+model Invoice {
+  id            String        @id @default(uuid())
+  invoiceNumber String        @unique @map("invoice_number") // e.g. INV-0001
+  clientId      String        @map("client_id")
+  projectId     String?       @map("project_id")
+  status        InvoiceStatus @default(DRAFT)
+  issueDate     DateTime      @map("issue_date")
+  dueDate       DateTime      @map("due_date")
+  currency      String        @default("USD")
+  subtotal      Decimal       @db.Decimal(12, 2)
+  discount      Decimal       @default(0) @db.Decimal(12, 2)
+  tax           Decimal       @default(0) @db.Decimal(12, 2)
+  total         Decimal       @db.Decimal(12, 2)
+  amountPaid    Decimal       @default(0) @map("amount_paid") @db.Decimal(12, 2)
+  balanceDue    Decimal       @map("balance_due") @db.Decimal(12, 2)
+  notes         String?       @db.Text
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  // Relationships
+  client   Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  project  Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  items    InvoiceItem[]
+  payments Payment[]
+
+  @@index([invoiceNumber])
+  @@index([clientId])
+  @@index([projectId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("invoices")
+}
+
+/// InvoiceItem: Line item in an Invoice
+model InvoiceItem {
+  id          String  @id @default(uuid())
+  invoiceId   String  @map("invoice_id")
+  description String
+  quantity    Decimal @db.Decimal(10, 2)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(12, 2)
+  taxRate     Decimal @default(0) @map("tax_rate") @db.Decimal(5, 2)
+  lineTotal   Decimal @map("line_total") @db.Decimal(12, 2)
+  position    Int     @default(0)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+/// Payment: Monetary payment recorded against an Invoice
+model Payment {
+  id            String   @id @default(uuid())
+  invoiceId     String   @map("invoice_id")
+  amount        Decimal  @db.Decimal(12, 2)
+  paymentDate   DateTime @default(now()) @map("payment_date")
+  paymentMethod String   @map("payment_method") // e.g. "BANK_TRANSFER", "STRIPE", "CASH"
+  reference     String? // Transaction reference / receipt #
+  notes         String?  @db.Text
+  recordedById  String?  @map("recorded_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  invoice    Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  recordedBy User?   @relation(fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId])
+  @@index([paymentDate])
+  @@map("payments")
+}
+
+// ============================================================================
+// FILE STORAGE & METADATA
+// ============================================================================
+
+/// FileFolder: Hierarchical folder structure for file organization
+model FileFolder {
+  id          String   @id @default(uuid())
+  name        String
+  parentId    String?  @map("parent_id")
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  parent     FileFolder?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  subfolders FileFolder[] @relation("FolderHierarchy")
+  createdBy  User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  files      FileAsset[]
+
+  @@index([parentId])
+  @@map("file_folders")
+}
+
+/// FileAsset: Metadata for uploaded files (actual binary stored in S3/Object Storage)
+model FileAsset {
+  id              String          @id @default(uuid())
+  name            String // Display name
+  originalName    String          @map("original_name")
+  mimeType        String          @map("mime_type")
+  size            BigInt // In bytes
+  storageKey      String          @unique @map("storage_key") // Object storage path/UUID
+  storageProvider String          @default("s3") @map("storage_provider")
+  uploadedById    String?         @map("uploaded_by_id")
+  folderId        String?         @map("folder_id")
+  relatedType     String?         @map("related_type") // e.g. "PROJECT", "TASK", "CLIENT"
+  relatedId       String?         @map("related_id")
+  accessLevel     FileAccessLevel @default(PRIVATE) @map("access_level")
+  starred         Boolean         @default(false)
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  uploadedBy User?       @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  folder     FileFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  shares     FileShare[]
+
+  @@index([storageKey])
+  @@index([folderId])
+  @@index([relatedType, relatedId])
+  @@map("file_assets")
+}
+
+/// FileShare: Specific user permissions on a FileAsset
+model FileShare {
+  id        String   @id @default(uuid())
+  fileId    String   @map("file_id")
+  userId    String   @map("user_id")
+  canEdit   Boolean  @default(false) @map("can_edit")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  file FileAsset @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  user User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, userId])
+  @@map("file_shares")
+}
+
+// ============================================================================
+// CHAT & REAL-TIME MESSAGING
+// ============================================================================
+
+/// ChatChannel: Public, project, or group messaging channel
+model ChatChannel {
+  id          String      @id @default(uuid())
+  name        String
+  description String?
+  type        ChannelType @default(CHANNEL)
+  createdById String?     @map("created_by_id")
+  projectId   String?     @map("project_id")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  createdBy User?           @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  project   Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  members   ChannelMember[]
+  messages  ChatMessage[]
+
+  @@index([projectId])
+  @@map("chat_channels")
+}
+
+/// ChannelMember: Join model mapping Users to ChatChannels
+model ChannelMember {
+  id        String   @id @default(uuid())
+  channelId String   @map("channel_id")
+  userId    String   @map("user_id")
+  role      String   @default("MEMBER")
+  joinedAt  DateTime @default(now()) @map("joined_at")
+
+  channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+  @@map("channel_members")
+}
+
+/// ChatConversation: 1-on-1 direct messaging conversation between two Users
+model ChatConversation {
+  id        String   @id @default(uuid())
+  userOneId String   @map("user_one_id")
+  userTwoId String   @map("user_two_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  userOne  User          @relation("ConversationUserOne", fields: [userOneId], references: [id], onDelete: Cascade)
+  userTwo  User          @relation("ConversationUserTwo", fields: [userTwoId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@unique([userOneId, userTwoId])
+  @@map("chat_conversations")
+}
+
+/// ChatMessage: Message sent within a Channel or Direct Conversation
+model ChatMessage {
+  id              String    @id @default(uuid())
+  channelId       String?   @map("channel_id")
+  conversationId  String?   @map("conversation_id")
+  senderId        String    @map("sender_id")
+  content         String    @db.Text
+  parentMessageId String?   @map("parent_message_id") // For threading and replies
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at") // Soft-delete for chat messages
+
+  channel       ChatChannel?      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  conversation  ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender        User              @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  parentMessage ChatMessage?      @relation("MessageThread", fields: [parentMessageId], references: [id], onDelete: SetNull)
+  threadReplies ChatMessage[]     @relation("MessageThread")
+  reactions     ChatReaction[]
+  mentions      ChatMention[]
+
+  @@index([channelId, createdAt])
+  @@index([conversationId, createdAt])
+  @@map("chat_messages")
+}
+
+/// ChatReaction: Emoji reaction on a ChatMessage
+model ChatReaction {
+  id        String   @id @default(uuid())
+  messageId String   @map("message_id")
+  userId    String   @map("user_id")
+  emoji     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@map("chat_reactions")
+}
+
+/// ChatMention: User mention inside a ChatMessage
+model ChatMention {
+  id              String   @id @default(uuid())
+  messageId       String   @map("message_id")
+  mentionedUserId String   @map("mentioned_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  message       ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  mentionedUser User        @relation(fields: [mentionedUserId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, mentionedUserId])
+  @@map("chat_mentions")
+}
+
+// ============================================================================
+// NOTIFICATIONS & PREFERENCES
+// ============================================================================
+
+/// Notification: In-app notification delivered to a User
+model Notification {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id") // Recipient
+  type       String // e.g. "TASK_ASSIGNED", "PAYMENT_RECEIVED", "MENTION"
+  title      String
+  message    String   @db.Text
+  entityType String?  @map("entity_type") // e.g. "TASK", "PROJECT", "INVOICE"
+  entityId   String?  @map("entity_id")
+  actorId    String?  @map("actor_id") // User who triggered the event
+  isRead     Boolean  @default(false) @map("is_read")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user  User  @relation("UserNotificationReceiver", fields: [userId], references: [id], onDelete: Cascade)
+  actor User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+/// NotificationPreference: Per-category notification settings for a User
+model NotificationPreference {
+  id           String               @id @default(uuid())
+  userId       String               @map("user_id")
+  category     NotificationCategory
+  inAppEnabled Boolean              @default(true) @map("in_app_enabled")
+  emailEnabled Boolean              @default(true) @map("email_enabled")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+  @@map("notification_preferences")
+}
+
+// ============================================================================
+// SETTINGS & AUDIT LOGS
+// ============================================================================
+
+/// WorkspaceSetting: Organization-wide metadata & preferences
+model WorkspaceSetting {
+  id              String   @id @default(uuid())
+  companyName     String   @default("OfficeCRM") @map("company_name")
+  companyEmail    String?  @map("company_email")
+  phone           String?
+  website         String?
+  address         String?
+  country         String?
+  timezone        String   @default("UTC")
+  defaultCurrency String   @default("USD") @map("default_currency")
+  dateFormat      String   @default("YYYY-MM-DD") @map("date_format")
+  logoUrl         String?  @map("logo_url")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("workspace_settings")
+}
+
+/// AuditLog: Append-only security & business event audit trail
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?  @map("user_id") // Nullable for system actions or unauthenticated attempts
+  action     String // e.g. "USER_LOGIN", "TASK_STATUS_CHANGED", "PAYMENT_RECORDED"
+  entityType String   @map("entity_type") // e.g. "TASK", "INVOICE", "USER"
+  entityId   String?  @map("entity_id")
+  metadata   Json?
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
 }

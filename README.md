@@ -159,3 +159,53 @@ Verify the API server is operational:
 - **PostgreSQL**: Exclusively used for structured relational data.
 - **Object Storage**: Will be used for file binaries (documents, avatars, project files); PostgreSQL stores metadata only.
 - **Socket.IO**: Real-time messaging will attach directly to the existing HTTP server instance in future iterations.
+
+---
+
+## 🗄 Database Schema & Entity Relationships
+
+The PostgreSQL database schema consists of 35 models and 11 enums, fully structured for relational integrity:
+
+### 1. Identity & Permissions
+- `Employee` (1) ⟷ (0..1) `User`: Staff business profiles are strictly decoupled from authentication accounts.
+- `User` (N) ⟶ (1) `Role`: Each user belongs to a system or custom role.
+- `Role` (1) ⟷ (N) `RolePermission` (N) ⟷ (1) `Permission`: Granular capability permissions mapped to roles.
+- `User` (1) ⟷ (N) `UserPermissionOverride` (N) ⟷ (1) `Permission`: User-level explicit GRANT/DENY overrides.
+
+### 2. CRM Pipeline & Clients
+- `Lead` (1) ⟶ (0..1) `Client`: Prospect records track qualification and can convert into official clients (`sourceLeadId`).
+- `Employee` (1) ⟶ (N) `Lead`: Sales staff assignment.
+- `Employee` (1) ⟶ (N) `Client`: Account manager assignment.
+
+### 3. Project Management & Delivery
+- `Client` (1) ⟶ (N) `Project`: Projects are executed for clients (`onDelete: Restrict`).
+- `Employee` (1) ⟶ (N) `Project`: Project manager assignment (`onDelete: SetNull`).
+- `Project` (1) ⟷ (N) `ProjectMember` (N) ⟷ (1) `Employee`: Relational team membership join table.
+- `Project` (1) ⟶ (N) `Task`: Tasks are organized under projects (`onDelete: Cascade`).
+- `Task` (1) ⟷ (N) `TaskAssignee` (N) ⟷ (1) `Employee`: Multi-employee task assignment join table.
+- `Task` (1) ⟶ (N) `TaskChecklistItem`: Subtask checklist tracking.
+- `Task` (1) ⟶ (N) `TaskComment`: Threaded user comments (`parentId` self-relation).
+- `Task` (1) ⟶ (N) `TaskActivity`: Audit log of status/priority/assignee changes.
+
+### 4. Invoicing & Financial Operations
+- `Client` (1) ⟶ (N) `Invoice`: Client invoices (`onDelete: Restrict` prevents accidental cascade deletion of billing records).
+- `Project` (1) ⟶ (N) `Invoice`: Optional project billing link.
+- `Invoice` (1) ⟶ (N) `InvoiceItem`: Precise line items using PostgreSQL `Decimal` types.
+- `Invoice` (1) ⟶ (N) `Payment`: Recorded payments with `Decimal` amounts, timestamps, and audit references.
+
+### 5. File Management & Assets
+- `FileFolder` (1) ⟶ (N) `FileFolder`: Self-referencing hierarchical folder tree.
+- `FileAsset`: Binary metadata (size, MIME, S3 storage key, access levels).
+- `FileAsset` (1) ⟷ (N) `FileShare` (N) ⟷ (1) `User`: Granular specific-user file sharing.
+
+### 6. Real-Time Chat & Communications
+- `ChatChannel`: Public, team, and project channels (`ChannelMember` join table).
+- `ChatConversation`: 1-on-1 private direct messaging between two users.
+- `ChatMessage`: Messages with thread support (`parentMessageId`), reactions (`ChatReaction`), and mentions (`ChatMention`).
+
+### 7. Notifications, Preferences & System Audit
+- `Notification`: In-app notification queue linked to recipient `User` and actor `User`.
+- `NotificationPreference`: User configurable notification categories.
+- `WorkspaceSetting`: Organization profile, logo, timezone, and default currency.
+- `AuditLog`: Append-only audit trail capturing security and business events across all entities.
+
