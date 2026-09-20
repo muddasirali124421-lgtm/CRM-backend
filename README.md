@@ -1,0 +1,161 @@
+# OfficeCRM Backend API
+
+This is the backend service for the internal Office CRM / Agency Management System.
+
+> **CRITICAL ARCHITECTURAL NOTE**:
+> The frontend and backend are completely separate, decoupled applications:
+> - Frontend location: `E:\CRM DUL\CRM front` (Vite + React)
+> - Backend location: `E:\CRM DUL\CRM Backend` (Node.js + Express + TypeScript + Prisma + PostgreSQL)
+> 
+> Neither application shares dependencies, node_modules, or package configurations.
+
+---
+
+## 🛠 Tech Stack
+
+- **Runtime**: Node.js (v20+)
+- **Language**: TypeScript (ES2022)
+- **Framework**: Express.js
+- **Database**: PostgreSQL
+- **ORM**: Prisma ORM
+- **Validation**: Zod
+- **Security**: Helmet, CORS
+- **Authentication**: JWT (`jsonwebtoken`) & `bcrypt` password hashing
+- **Real-Time Ready**: Prepared for Socket.IO (HTTP server wrapper)
+
+---
+
+## 📁 Project Structure
+
+```
+CRM Backend/
+├── prisma/
+│   └── schema.prisma         # PostgreSQL schema & Prisma client configuration
+├── src/
+│   ├── config/
+│   │   ├── env.ts            # Zod-validated environment configuration
+│   │   └── database.ts       # Reusable singleton PrismaClient instance
+│   ├── controllers/
+│   │   └── health.controller.ts # Health check controller
+│   ├── middleware/
+│   │   ├── auth.middleware.ts     # JWT authenticate & capability-based authorize middleware
+│   │   ├── error.middleware.ts    # 404 handler and centralized error handler
+│   │   └── validate.middleware.ts # Reusable Zod request validation middleware
+│   ├── modules/
+│   │   └── README.md         # Planned domain modules documentation
+│   ├── routes/
+│   │   ├── api.router.ts     # Aggregate router under /api
+│   │   └── health.router.ts  # /api/health route
+│   ├── types/
+│   │   ├── api.types.ts          # Standardized API response interfaces
+│   │   ├── auth.types.ts         # User vs Employee architecture & JWT types
+│   │   └── permissions.types.ts  # Capability-based permission system & roles
+│   ├── utils/
+│   │   ├── api-response.ts   # sendSuccess, sendError, and AppError helpers
+│   │   ├── jwt.ts            # Access and refresh token sign/verify utilities
+│   │   └── password.ts       # bcrypt password hashing and verification
+│   ├── app.ts                # Express application configuration
+│   └── server.ts             # HTTP server bootstrap & graceful shutdown
+├── .env                      # Local environment variables (git-ignored)
+├── .env.example              # Template for environment variables
+├── .gitignore                # Git ignore rules
+├── package.json              # Project dependencies and scripts
+├── tsconfig.json             # TypeScript compiler configuration
+└── README.md                 # Project documentation
+```
+
+---
+
+## ⚙️ Environment Variables
+
+Copy `.env.example` to `.env`:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Description | Default / Example |
+| :--- | :--- | :--- |
+| `NODE_ENV` | Application environment (`development`, `test`, `production`) | `development` |
+| `PORT` | HTTP server listening port | `5000` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@localhost:5432/officecrm?schema=public` |
+| `JWT_ACCESS_SECRET` | Secret key for signing Access Tokens (min 16 chars, 32+ recommended) | (Secure random secret) |
+| `JWT_REFRESH_SECRET` | Secret key for signing Refresh Tokens (min 16 chars, 32+ recommended) | (Secure random secret) |
+| `JWT_ACCESS_EXPIRES_IN` | Access token lifespan | `15m` |
+| `JWT_REFRESH_EXPIRES_IN`| Refresh token lifespan | `7d` |
+| `FRONTEND_URL` | Allowed origin for CORS | `http://localhost:5173` |
+
+---
+
+## 🚀 Getting Started
+
+### 1. Install Dependencies
+```bash
+npm install
+```
+
+### 2. Generate Prisma Client
+```bash
+npm run prisma:generate
+```
+
+### 3. Type Checking
+```bash
+npm run typecheck
+```
+
+### 4. Build for Production
+```bash
+npm run build
+```
+
+### 5. Run Development Server
+```bash
+npm run dev
+```
+
+### 6. Run Production Server
+```bash
+npm run start
+```
+
+---
+
+## 🩺 Health Endpoint
+
+Verify the API server is operational:
+
+- **Method**: `GET`
+- **URL**: `http://localhost:5000/api/health`
+- **Auth**: Public (No authentication required)
+- **Response**:
+```json
+{
+  "success": true,
+  "message": "OfficeCRM API is running"
+}
+```
+
+---
+
+## 🏛 Core Architectural Principles
+
+### 1. User vs Employee Separation
+- **Employee**: Business profile (name, department, job title, contact details, work history).
+- **User**: Authentication credential account (login email, password hash, status, role).
+- **Relationship**: 1 Employee <-> 0..1 User account.
+- **Passwords are never stored directly on Employee profiles.**
+
+### 2. Capability-Based Permissions
+- No hard-coded role checks like `if (role === 'Admin')`.
+- Only **Super Admin** bypasses permission checks.
+- All other roles (including Admin) and custom roles use granular capability permissions (`module.action`).
+- Effective permission evaluation:
+  1. `IF user is Super Admin` -> Allow
+  2. `ELSE IF User Permission Override exists` -> Use individual override
+  3. `ELSE` -> Use Role Permission default
+
+### 3. Database & Storage Architecture
+- **PostgreSQL**: Exclusively used for structured relational data.
+- **Object Storage**: Will be used for file binaries (documents, avatars, project files); PostgreSQL stores metadata only.
+- **Socket.IO**: Real-time messaging will attach directly to the existing HTTP server instance in future iterations.

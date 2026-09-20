@@ -1,0 +1,22 @@
+// Prisma Schema for OfficeCRM
+// Database provider: PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Minimal placeholder model to ensure Prisma Client generates cleanly
+// in Step 1. The full relational CRM schema (Users, Employees, Roles,
+// Permissions, Projects, Tasks, etc.) will be designed in Step 2.
+model SystemHealth {
+  id        String   @id @default(uuid())
+  status    String   @default("ok")
+  checkedAt DateTime @default(now())
+
+  @@map("system_health")
+}
